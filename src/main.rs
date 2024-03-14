@@ -30,7 +30,7 @@ fn handle_connection(mut stream: TcpStream) {
     let request_parts: Vec<&str> = request_line.splitn(3, ' ').collect();
     let path = request_parts[1];
 
-    let status_code = if path.starts_with("/echo/") {
+    let status_code = if path.starts_with("/") {
         200
     } else {
         404
