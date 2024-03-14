@@ -4,7 +4,7 @@ use std::io::{self, BufRead};
 use std::net::TcpStream;
 use std::{io::Write, net::TcpListener};
 static CRLF: &str = "\r\n";
-fn handle_connection(mut _stream: TcpStream) {
+fn connect(mut _stream: TcpStream) {
     println!("accepted new connection");
     let reader = io::BufReader::new(&_stream);
     let lines: Vec<_> = reader
@@ -68,7 +68,7 @@ fn main() {
     let listener = TcpListener::bind("127.0.0.1:4221").unwrap();
     for stream in listener.incoming() {
         match stream {
-            Ok(mut _stream) => handle_connection(_stream),
+            Ok(mut _stream) => connect(_stream),
             Err(e) => {
                 println!("error: {}", e);
             }
