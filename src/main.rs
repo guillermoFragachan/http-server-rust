@@ -1,5 +1,5 @@
 use std::{
-    io::{Read, Write},
+    io::{Write},
     io::{BufRead, BufReader},
     net::{TcpListener, TcpStream},
 };
@@ -25,11 +25,25 @@ fn handle_connection(mut stream: TcpStream) {
         .map(|result| result.unwrap())
         .take_while(|line| !line.is_empty())
         .collect();
-    if request[0] == "GET / HTTP/1.1" {
-        let response = b"HTTP/1.1 200 OK\r\n\r\n";
-        stream.write_all(response).unwrap();
+
+    let request_line = request[0].clone();
+    let request_parts: Vec<&str> = request_line.splitn(3, ' ').collect();
+    let path = request_parts[1];
+
+    let status_code = if path.starts_with("/echo/") {
+        200
     } else {
-        let response = b"HTTP/1.1 404 NOT FOUND\r\n\r\n";
-        stream.write_all(response).unwrap();
-    }
+        404
+    };
+
+    let body = if status_code == 200 {
+        let echo_string = path.split('/').last().unwrap();
+        echo_string.to_string()
+    } else {
+        String::new()
+    };
+
+    let response_header = format!("HTTP/1.1 {} OK\r\nContent-Type: text/plain\r\nContent-Length: {}\r\n\r\n", status_code, body.len());
+    let response = format!("{}{}", response_header, body);
+    stream.write_all(response.as_bytes()).unwrap();
 }
