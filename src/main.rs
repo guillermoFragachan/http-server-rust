@@ -4,6 +4,9 @@ use std::io::{self, BufRead};
 use std::net::TcpStream;
 use std::thread;
 use std::{io::Write, net::TcpListener};
+use std::fs::File;
+use std::io::Read;
+
 static CRLF: &str = "\r\n";
 fn connect(mut _stream: TcpStream) {
     println!("accepted new connection");
@@ -27,6 +30,40 @@ fn connect(mut _stream: TcpStream) {
             let resp_status_line = "HTTP/1.1 200 OK\r\n";
             _stream.write(resp_status_line.as_bytes()).unwrap();
             _stream.write(CRLF.as_bytes()).unwrap();
+        }
+        _ if path.starts_with("/file") =>{
+            let resp_status_line = "HTTP/1.1 200 OK\r\n";
+            _stream.write(resp_status_line.as_bytes()).unwrap();
+        
+            // Extract the file name from the path
+            let file_name = path.splitn(2, "/file/").collect::<Vec<&str>>()[1];
+        
+            // Check if the file exists in the local directory
+            let file_path = format!("./{}", file_name);
+            if let Ok(mut file) = File::open(file_path) {
+                // Set the content type based on the file extension (optional)
+                let content_type = match file_name.rsplit('.').next() {
+                    Some("txt") => "text/plain",
+                    Some("html") => "text/html",
+                    Some("css") => "text/css",
+                    Some("js") => "application/javascript",
+                    Some(_) => "application/octet-stream",
+                    None => "application/octet-stream",
+                };
+                _stream.write(format!("Content-Type: {}\r\n", content_type).as_bytes()).unwrap();
+        
+                // Read the file content and send it in the response
+                let mut file_content = Vec::new();
+                file.read_to_end(&mut file_content).unwrap();
+                _stream.write(format!("Content-Length: {}\r\n", file_content.len()).as_bytes()).unwrap();
+                _stream.write(CRLF.as_bytes()).unwrap();
+                _stream.write(&file_content).unwrap();
+            } else {
+                // File not found, send a 404 response
+                let resp_status_line = "HTTP/1.1 404 Not Found\r\n";
+                _stream.write(resp_status_line.as_bytes()).unwrap();
+                _stream.write(CRLF.as_bytes()).unwrap();
+            }
         }
         // starts with /echo
         _ if path.starts_with("/echo/") => {
@@ -83,7 +120,5 @@ fn main() {
         }
     }
 
-    for thread in threads {
-        thread.join().expect("Thread paniced");
-    }
+    
 }
