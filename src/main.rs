@@ -54,7 +54,7 @@ fn connect(mut _stream: TcpStream) {
             _stream.write(resp_status_line.as_bytes()).unwrap();
             _stream.write(CRLF.as_bytes()).unwrap();
         }
-        _ if path.starts_with("/file/") =>{
+        _ if path.starts_with("/files/") =>{
             let resp_status_line = "HTTP/1.1 200 OK\r\n";
             _stream.write(resp_status_line.as_bytes()).unwrap();
             let content: Vec<&str> = path.split("files/").collect();
