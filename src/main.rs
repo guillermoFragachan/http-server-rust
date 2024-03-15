@@ -68,7 +68,7 @@ fn connect(mut _stream: TcpStream) {
             _stream.write(resp_status_line.as_bytes()).unwrap();
             _stream.write(CRLF.as_bytes()).unwrap();
         }
-        _ if path.starts_with("/file") =>{
+        _ if path.starts_with("/files") =>{
 
             let content: Vec<&str> = path.split("files/").collect();
             let filename = content[1];
