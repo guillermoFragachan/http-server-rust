@@ -2,6 +2,7 @@ use std::collections::HashMap;
 // Uncomment this block to pass the first stage
 use std::io::{self, BufRead};
 use std::net::TcpStream;
+use std::thread;
 use std::{io::Write, net::TcpListener};
 static CRLF: &str = "\r\n";
 fn connect(mut _stream: TcpStream) {
@@ -66,12 +67,23 @@ fn main() {
     println!("Logs from your program will appear here!");
     // Uncomment this block to pass the first stage
     let listener = TcpListener::bind("127.0.0.1:4221").unwrap();
+
+    let mut threads = Vec::new();
     for stream in listener.incoming() {
         match stream {
-            Ok(mut _stream) => connect(_stream),
+            Ok(mut _stream) => {
+                let handle = thread::spawn(|| {
+                    connect(_stream);
+                });
+                threads.push(handle);
+            },
             Err(e) => {
                 println!("error: {}", e);
             }
+        }
+        for thread in threads {
+            thread.join().expect("Thread paniced");
+    1
         }
     }
 }
