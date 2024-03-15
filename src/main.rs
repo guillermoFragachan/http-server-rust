@@ -1,41 +1,20 @@
 use std::collections::HashMap;
+use std::fs::File;
 // Uncomment this block to pass the first stage
-use std::io::{self, BufRead};
+use std::io::{self, BufRead, Read};
 use std::net::TcpStream;
 use std::thread;
 use std::{io::Write, net::TcpListener};
-use std::fs::File;
-use std::io::Read;
-use std::fs;
 use std::env;
-use std::path::{Path, PathBuf};
-use std::sync::{Once, OnceLock};
+use std::path::Path;
+use std::sync::OnceLock;
 
 use anyhow::Context;
 
 static CRLF: &str = "\r\n";
 static FILE_DIR: OnceLock<String> = OnceLock::new();
 
-fn print_directory_contents(directory_path: &str) {
-    match fs::read_dir(directory_path) {
-        Ok(files) => {
-            for file in files {
-                match file {
-                    Ok(file) => {
-                        let file_name = file.file_name().into_string().unwrap_or_else(|_| String::from("<invalid encoding>"));
-                        println!("{}", file_name);
-                    }
-                    Err(e) => {
-                        println!("Error reading file: {}", e);
-                    }
-                }
-            }
-        }
-        Err(e) => {
-            println!("Error reading directory: {}", e);
-        }
-    }
-}
+
 fn connect(mut _stream: TcpStream) {
     println!("accepted new connection");
     let reader = io::BufReader::new(&_stream);
@@ -69,24 +48,41 @@ fn connect(mut _stream: TcpStream) {
             _stream.write(CRLF.as_bytes()).unwrap();
         }
         _ if path.starts_with("/files") =>{
+            let resp_status_line = "HTTP/1.1 200 OK\r\n";
+            _stream.write(resp_status_line.as_bytes()).unwrap();
 
-            let content: Vec<&str> = path.split("files/").collect();
-            let filename = content[1];
-            let directory = env::args().nth(2).unwrap();
-            let filename = format!("{directory}/{filename}");
-            let mut response = String::new();
-            if Path::new(&filename).exists() {
-                let content = std::fs::read_to_string(filename).unwrap();
-                response = format!(
-                "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: {}\r\n\r\n{}",
-                content.len(),
-                content
-            );
+            // Extract the file name from the path
+            let file_name = path.splitn(2, "/files/").collect::<Vec<&str>>()[1];
+
+            // Check if the file exists in the provided directory
+            let file_path = Path::new(&*FILE_DIR.get().unwrap()).join(file_name);
+
+            if let Ok(mut file) = File::open(file_path) {
+                // Set the content type based on the file extension (optional)
+                let content_type = match file_name.rsplit('.').next() {
+                    Some("txt") => "text/plain",
+                    Some("html") => "text/html",
+                    Some("css") => "text/css",
+                    Some("js") => "application/javascript",
+                    Some(_) => "application/octet-stream",
+                    None => "application/octet-stream",
+                };
+                _stream.write(format!("Content-Type: {}\r\n", content_type).as_bytes()).unwrap();
+
+                // Read the file content and send it in the response
+                let mut file_content = Vec::new();
+                file.read_to_end(&mut file_content).unwrap();
+                _stream.write(format!("Content-Length: {}\r\n", file_content.len()).as_bytes()).unwrap();
+                _stream.write(CRLF.as_bytes()).unwrap();
+                _stream.write(&file_content).unwrap();
             } else {
-                response = "HTTP/1.1 404 NOT FOUND\r\n\r\n".to_string();
+                // File not found, send a 404 response
+                let resp_status_line = "HTTP/1.1 404 Not Found\r\n";
+                _stream.write(resp_status_line.as_bytes()).unwrap();
+                _stream.write(CRLF.as_bytes()).unwrap();
             }
         }
-        // starts with /echo
+        // rest of your code...
         _ if path.starts_with("/echo/") => {
             let resp_status_line = "HTTP/1.1 200 OK\r\n";
             _stream.write(resp_status_line.as_bytes()).unwrap();
@@ -144,13 +140,3 @@ fn main() {
     
 }
 
-
-fn send_bytes(stream: &mut TcpStream, bytes: &[u8]) -> anyhow::Result<()> {
-    write!(
-        stream,
-        "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: {}\r\n\r\n",
-        bytes.len(),
-    )
-    .context("failed to send bytes")?;
-    stream.write_all(bytes).context("failed to send bytes")
-}
