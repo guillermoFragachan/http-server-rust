@@ -7,6 +7,7 @@ use std::{io::Write, net::TcpListener};
 use std::fs::File;
 use std::io::Read;
 use std::fs;
+use std::env;
 
 static CRLF: &str = "\r\n";
 
@@ -56,10 +57,14 @@ fn connect(mut _stream: TcpStream) {
         _ if path.starts_with("/file/") =>{
             let resp_status_line = "HTTP/1.1 200 OK\r\n";
             _stream.write(resp_status_line.as_bytes()).unwrap();
+            let content: Vec<&str> = path.split("files/").collect();
+
+
+            let filename = content[1];
+            let directory = env::args().nth(2).unwrap();
+            let file_name = format!("{directory}/{filename}");
         
-            // Extract the file name from the path
             // print_directory_contents("./");
-            let file_name = path.splitn(2, "/file/").collect::<Vec<&str>>()[1];
         
             // Check if the file exists in the local directory
             let file_path = format!("./{}", file_name);
