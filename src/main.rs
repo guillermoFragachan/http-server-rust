@@ -6,8 +6,30 @@ use std::thread;
 use std::{io::Write, net::TcpListener};
 use std::fs::File;
 use std::io::Read;
+use std::fs;
 
 static CRLF: &str = "\r\n";
+
+fn print_directory_contents(directory_path: &str) {
+    match fs::read_dir(directory_path) {
+        Ok(files) => {
+            for file in files {
+                match file {
+                    Ok(file) => {
+                        let file_name = file.file_name().into_string().unwrap_or_else(|_| String::from("<invalid encoding>"));
+                        println!("{}", file_name);
+                    }
+                    Err(e) => {
+                        println!("Error reading file: {}", e);
+                    }
+                }
+            }
+        }
+        Err(e) => {
+            println!("Error reading directory: {}", e);
+        }
+    }
+}
 fn connect(mut _stream: TcpStream) {
     println!("accepted new connection");
     let reader = io::BufReader::new(&_stream);
@@ -36,6 +58,7 @@ fn connect(mut _stream: TcpStream) {
             _stream.write(resp_status_line.as_bytes()).unwrap();
         
             // Extract the file name from the path
+            // print_directory_contents("./");
             let file_name = path.splitn(2, "/file/").collect::<Vec<&str>>()[1];
         
             // Check if the file exists in the local directory
