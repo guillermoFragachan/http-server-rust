@@ -1,142 +1,139 @@
-use std::collections::HashMap;
-use std::fs::File;
-// Uncomment this block to pass the first stage
-use std::io::{self, BufRead, Read};
-use std::net::TcpStream;
-use std::thread;
-use std::{io::Write, net::TcpListener};
-use std::env;
-use std::path::Path;
-use std::sync::OnceLock;
-
+use std::{
+    collections::HashMap,
+    env, fs,
+    io::{BufRead, BufReader, Write},
+    net::{TcpListener, TcpStream},
+    path::PathBuf,
+    sync::{Once, OnceLock},
+    thread,
+};
 use anyhow::Context;
-
-static CRLF: &str = "\r\n";
 static FILE_DIR: OnceLock<String> = OnceLock::new();
-
-
-fn connect(mut _stream: TcpStream) {
-    println!("accepted new connection");
-    let reader = io::BufReader::new(&_stream);
-    let lines: Vec<_> = reader
-        .lines()
-        .map(|l| l.unwrap())
-        .take_while(|l| l != "")
-        .collect();
-    let (_method, path, _version) = {
-        let parts: Vec<_> = lines[0].split_whitespace().collect();
-        (parts[0], parts[1], parts[2])
-    };
-    let mut headers: HashMap<String, String> = HashMap::new();
-    for line in lines.iter().skip(1) {
-        let parts: Vec<_> = line.splitn(2, ": ").collect();
-        headers.insert(parts[0].to_string(), parts[1].to_string());
-
-        let mut args = env::args().skip(1);
+fn main() -> anyhow::Result<()> {
+    let mut args = env::args().skip(1);
     while let Some(arg) = args.next() {
         if arg == "--directory" {
             FILE_DIR
-                .set(args.next().context("no directory given!").expect("non"))
+                .set(args.next().context("no directory given!")?)
                 .unwrap();
         }
     }
-    }
-    match path {
-        "/" => {
-            let resp_status_line = "HTTP/1.1 200 OK\r\n";
-            _stream.write(resp_status_line.as_bytes()).unwrap();
-            _stream.write(CRLF.as_bytes()).unwrap();
-        }
-        _ if path.starts_with("/files") =>{
-            let resp_status_line = "HTTP/1.1 200 OK\r\n";
-            _stream.write(resp_status_line.as_bytes()).unwrap();
-
-            // Extract the file name from the path
-            let file_name = path.splitn(2, "/files/").collect::<Vec<&str>>()[1];
-
-            // Check if the file exists in the provided directory
-            let file_path = Path::new(&*FILE_DIR.get().unwrap()).join(file_name);
-
-            if let Ok(mut file) = File::open(file_path) {
-                // Set the content type based on the file extension (optional)
-                let content_type = match file_name.rsplit('.').next() {
-                    Some("txt") => "text/plain",
-                    Some("html") => "text/html",
-                    Some("css") => "text/css",
-                    Some("js") => "application/javascript",
-                    Some(_) => "application/octet-stream",
-                    None => "application/octet-stream",
-                };
-                _stream.write(format!("Content-Type: {}\r\n", content_type).as_bytes()).unwrap();
-
-                // Read the file content and send it in the response
-                let mut file_content = Vec::new();
-                file.read_to_end(&mut file_content).unwrap();
-                _stream.write(format!("Content-Length: {}\r\n", file_content.len()).as_bytes()).unwrap();
-                _stream.write(CRLF.as_bytes()).unwrap();
-                _stream.write(&file_content).unwrap();
-            } else {
-                // File not found, send a 404 response
-                let resp_status_line = "HTTP/1.1 404 Not Found\r\n";
-                _stream.write(resp_status_line.as_bytes()).unwrap();
-                _stream.write(CRLF.as_bytes()).unwrap();
-            }
-        }
-        // rest of your code...
-        _ if path.starts_with("/echo/") => {
-            let resp_status_line = "HTTP/1.1 200 OK\r\n";
-            _stream.write(resp_status_line.as_bytes()).unwrap();
-            let echo = path.splitn(2, "/echo/").collect::<Vec<&str>>()[1];
-            _stream
-                .write("Content-Type: text/plain\r\n".as_bytes())
-                .unwrap();
-            _stream
-                .write(format!("Content-Length: {}\r\n", echo.len()).as_bytes())
-                .unwrap();
-            _stream.write(CRLF.as_bytes()).unwrap();
-            _stream.write(echo.as_bytes()).unwrap();
-        }
-        _ if path.starts_with("/user-agent") => {
-            let resp_status_line = "HTTP/1.1 200 OK\r\n";
-            _stream.write(resp_status_line.as_bytes()).unwrap();
-            _stream
-                .write("Content-Type: text/plain\r\n".as_bytes())
-                .unwrap();
-            let user_agent = headers.get("User-Agent").unwrap();
-            _stream
-                .write(format!("Content-Length: {}\r\n", user_agent.len()).as_bytes())
-                .unwrap();
-            _stream.write(CRLF.as_bytes()).unwrap();
-            _stream.write(user_agent.as_bytes()).unwrap();
-        }
-        _ => {
-            let resp_status_line = "HTTP/1.1 404 Not Found\r\n";
-            _stream.write(resp_status_line.as_bytes()).unwrap();
-            _stream.write(CRLF.as_bytes()).unwrap();
-        }
-    }
-}
-
-fn main() {
+    // You can use print statements as follows for debugging, they'll be visible when running tests.
     println!("Logs from your program will appear here!");
 
     let listener = TcpListener::bind("127.0.0.1:4221").unwrap();
-
     let mut threads = Vec::new();
     for stream in listener.incoming() {
         match stream {
-            Ok(mut _stream) => {
-                let handle = thread::spawn(|| {
-                    connect(_stream);
-                });
+            Ok(stream) => {
+                let handle = thread::spawn(|| handle_connection(stream));
                 threads.push(handle);
-            },
+            }
             Err(e) => {
                 println!("error: {}", e);
             }
         }
     }
+    for handle in threads {
+        handle.join().unwrap()?;
+    }
+    Ok(())
+}
+#[derive(Debug, PartialEq, Eq)]
+enum Method {
+    Get,
+    Post,
+}
+fn handle_connection(mut stream: TcpStream) -> anyhow::Result<()> {
+    let reader = BufReader::new(&mut stream);
+    println!("accepted new connection");
+    let lines = reader
+        .lines()
+        .map(|l| l.unwrap())
+        .take_while(|line| !line.is_empty())
+        .collect::<Vec<String>>();
+    assert!(lines.len() > 0, "no start line given!");
+    let start_line = &lines[0];
+    let (method, path) = parse_start_line(start_line)?;
+    let headers = parse_headers(&lines);
+    if method == Method::Get {
+        if path.starts_with("/echo/") {
+            let echo_text = &path[6..];
+            return send_plaintext(&mut stream, echo_text);
+        }
+        if path == "/user-agent" {
+            let user_agent = headers
+                .get("User-Agent")
+                .context("User-Agent header was not set")?;
+            return send_plaintext(&mut stream, user_agent);
+        }
+        if path.starts_with("/files/") {
+            if let Some(file_dir) = FILE_DIR.get() {
+                let file_path = PathBuf::from(file_dir).join(&path[7..]);
+                return match fs::read(&file_path) {
+                    Ok(bytes) => send_bytes(&mut stream, &bytes),
+                    Err(_e) => {
+                        write!(stream, "HTTP/1.1 404 Not Found\r\n\r\n").context("write failed")
+                    }
+                };
+            }
+        }
+        if path == "/" {
+            return write!(stream, "HTTP/1.1 200 OK\r\n\r\n").context("write failed");
+        }
+    }
+    write!(stream, "HTTP/1.1 404 Not Found\r\n\r\n").context("write failed")
+}
 
-    
+fn parse_start_line<'a>(start_line: &'a str) -> anyhow::Result<(Method, &'a str)> {
+    let mut parts = start_line.split_ascii_whitespace();
+    let method = parts.next().context("method must exist")?;
+    let path = parts.next().context("path must exist")?;
+    let method = match method {
+        "GET" => Method::Get,
+        "POST" => Method::Post,
+        other => anyhow::bail!("HTTP method {other} is not supported"),
+    };
+    Ok((method, path))
+}
+
+fn parse_headers<'a>(lines: &'a [String]) -> HashMap<&'a str, &'a str> {
+    lines
+        .iter()
+        .skip(1)
+        .filter_map(|line| line.split_once(':'))
+        .map(|(k, v)| (k.trim(), v.trim()))
+        .collect()
+}
+
+fn send_echo_response(stream: &mut TcpStream, path: &str) -> anyhow::Result<()> {
+    send_plaintext(stream, &path[6..])
+}
+
+fn send_plaintext(stream: &mut TcpStream, text: &str) -> anyhow::Result<()> {
+    write!(
+        stream,
+        "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {}\r\n\r\n{}",
+        text.len(),
+        text
+    )
+    .context("failed to send plaintext")
+}
+
+fn send_user_agent(stream: &mut TcpStream, headers: &HashMap<&str, &str>) -> anyhow::Result<()> {
+    let user_agent = *headers
+        .get("User-Agent")
+        .context("no User-Agent header was sent!")?;
+    send_plaintext(stream, user_agent)
+}
+
+fn send_bytes(stream: &mut TcpStream, bytes: &[u8]) -> anyhow::Result<()> {
+    write!(
+        stream,
+        "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: {}\r\n\r\n",
+        bytes.len(),
+    )
+    .context("failed to send bytes")?;
+    stream.write_all(bytes).context("failed to send bytes")
 }
 
