@@ -62,10 +62,10 @@ fn connect(mut _stream: TcpStream) {
         }
     }
 }
+
 fn main() {
-    // You can use print statements as follows for debugging, they'll be visible when running tests.
     println!("Logs from your program will appear here!");
-    // Uncomment this block to pass the first stage
+
     let listener = TcpListener::bind("127.0.0.1:4221").unwrap();
 
     let mut threads = Vec::new();
@@ -81,9 +81,9 @@ fn main() {
                 println!("error: {}", e);
             }
         }
-        for thread in threads {
-            thread.join().expect("Thread paniced");
-    1
-        }
+    }
+
+    for thread in threads {
+        thread.join().expect("Thread paniced");
     }
 }
