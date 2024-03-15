@@ -1,7 +1,7 @@
 use std::{
     collections::HashMap,
     env, fs,
-    io::{BufRead, BufReader, Read, Write},
+    io::{BufRead, BufReader, Read, Seek, Write},
     net::{TcpListener, TcpStream},
     path::PathBuf,
     sync::{Once, OnceLock},
@@ -88,7 +88,6 @@ fn handle_connection(mut stream: TcpStream) -> anyhow::Result<()> {
 
     if method == Method::Post {
         if path.starts_with("/files/") {
-            println!("sass");
             if let Some(file_dir) = FILE_DIR.get() {
                 let file_path = PathBuf::from(file_dir).join(&path[7..]);
                 let mut file = fs::File::create(&file_path)?;
@@ -97,7 +96,18 @@ fn handle_connection(mut stream: TcpStream) -> anyhow::Result<()> {
                 let bytes_read = stream.read(&mut buffer)?;
                 file.write_all(&buffer[..bytes_read])?;
 
-                // write!(stream, "HTTP/1.1 201 Created\r\n\r\n").context("write failed")
+                // Read the file content back into memory
+                let mut file_content = Vec::new();
+                file.seek(std::io::SeekFrom::Start(0))?;
+                file.read_to_end(&mut file_content)?;
+
+                // Send the file content back to the client
+                write!(
+                    stream,
+                    "HTTP/1.1 201 Created\r\nContent-Type: application/octet-stream\r\nContent-Length: {}\r\n\r\n",
+                    file_content.len()
+                )?;
+                stream.write_all(&file_content)?;
             }
         }
     }
