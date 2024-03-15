@@ -1,7 +1,7 @@
 use std::{
     collections::HashMap,
     env, fs,
-    io::{BufRead, BufReader, Write},
+    io::{BufRead, BufReader, Read, Write},
     net::{TcpListener, TcpStream},
     path::PathBuf,
     sync::{Once, OnceLock},
@@ -80,6 +80,20 @@ fn handle_connection(mut stream: TcpStream) -> anyhow::Result<()> {
         }
         if path == "/" {
             return write!(stream, "HTTP/1.1 200 OK\r\n\r\n").context("write failed");
+        }
+        if method == Method::Post {
+            if path.starts_with("/files/") {
+                if let Some(file_dir) = FILE_DIR.get() {
+                    let file_path = PathBuf::from(file_dir).join(&path[7..]);
+                    let mut file = fs::File::create(&file_path)?;
+    
+                    let mut buffer = [0; 1024];
+                    let bytes_read = stream.read(&mut buffer)?;
+                    file.write_all(&buffer[..bytes_read])?;
+    
+                    // write!(stream, "HTTP/1.1 201 Created\r\n\r\n").context("write failed")
+                }
+            }
         }
     }
     write!(stream, "HTTP/1.1 404 Not Found\r\n\r\n").context("write failed")
